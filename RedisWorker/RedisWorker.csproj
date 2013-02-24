@@ -55,7 +55,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="DefaultRedisWorkerNamingStrategy.cs" />
+    <Compile Include="IRedisWorker.cs" />
     <Compile Include="IRedisWorkerNamingStrategy.cs" />
+    <Compile Include="RedisWork.cs" />
     <Compile Include="RedisWorker.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="RedisWorkerQueuer.cs" />
