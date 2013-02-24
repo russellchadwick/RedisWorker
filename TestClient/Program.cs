@@ -12,20 +12,21 @@ namespace TestClient
 
     class Program
     {
-        private static readonly Func<IRedisClient> RedisClientProvider = () => new RedisClient("192.168.94.178");
+        private static readonly IRedisClientsManager RedisClientsManager = new PooledRedisClientManager("192.168.94.178");
 
         static void StartSomeWork(int count = 10)
         {
-            var redisClient = RedisClientProvider.Invoke();
-
-            for (var x = 0; x < count; x++)
+            using (var redisClient = RedisClientsManager.GetClient())
             {
-                var guid = Guid.NewGuid();
-                redisClient.QueueWork(new PerformPretendWorkMessage
-                    {
-                        Id = guid
-                    });
-                Console.WriteLine("{0} Wrote work", guid);
+                for (var x = 0; x < count; x++)
+                {
+                    var guid = Guid.NewGuid();
+                    redisClient.QueueWork(new PerformPretendWorkMessage
+                        {
+                            Id = guid
+                        });
+                    Console.WriteLine("{0} Wrote work", guid);
+                }
             }
         }
 
@@ -38,7 +39,7 @@ namespace TestClient
 
             ThreadPool.QueueUserWorkItem(delegate
                 {
-                    var redisWorker = new RedisWorker<PerformPretendWorkMessage>(RedisClientProvider);
+                    var redisWorker = new RedisWorker<PerformPretendWorkMessage>(RedisClientsManager);
                     redisWorker.WaitForWork(performPretendWorkMessage =>
                         {
                             Console.WriteLine("{0} Received work", performPretendWorkMessage.Id);

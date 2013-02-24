@@ -16,26 +16,26 @@ namespace RedisWorker
 
     public class RedisWorker<TWork>
     {
-        private readonly Func<IRedisClient> _redisClientProvider; 
+        private readonly IRedisClientsManager _redisClientsManager; 
         private readonly IRedisWorkerNamingStrategy _redisWorkerNamingStrategy;
 
         public RedisWorker(
-            Func<IRedisClient> redisClientProvider,
+            IRedisClientsManager redisClientsManager,
             IRedisWorkerNamingStrategy redisWorkerNamingStrategy)
         {
-            _redisClientProvider = redisClientProvider;
+            _redisClientsManager = redisClientsManager;
             _redisWorkerNamingStrategy = redisWorkerNamingStrategy;
         }
 
         public RedisWorker(
-            Func<IRedisClient> redisClientProvider)
-            : this(redisClientProvider, new DefaultRedisWorkerNamingStrategy(typeof (TWork).Name))
+            IRedisClientsManager redisClientsManager)
+            : this(redisClientsManager, new DefaultRedisWorkerNamingStrategy(typeof (TWork).Name))
         {
         }
 
         private IRedisClient GetRedisClient()
         {
-            return _redisClientProvider.Invoke();
+            return _redisClientsManager.GetClient();
         }
 
         private void CompletedWork(string workId, RedisWork<TWork> redisWork)
