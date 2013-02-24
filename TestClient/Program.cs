@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading;
+using System.Threading.Tasks;
 using RedisWorker;
 using ServiceStack.Redis;
 
@@ -37,30 +38,30 @@ namespace TestClient
                     StartSomeWork();
                 });
 
-            ThreadPool.QueueUserWorkItem(delegate
+            Task.Factory.StartNew(() =>
                 {
                     var redisWorker = new RedisWorker<PerformPretendWorkMessage>(RedisClientsManager);
                     redisWorker.WaitForWork(performPretendWorkMessage =>
+                    {
+                        Console.WriteLine("{0} Received work", performPretendWorkMessage.Id);
+                        var random = new Random();
+                        var randomWait = random.Next(10);
+                        Console.WriteLine("{0} Pretending it takes {1} seconds to complete",
+                                          performPretendWorkMessage.Id, randomWait);
+                        var chaosMonkey = random.Next(5).Equals(0);
+                        if (chaosMonkey)
                         {
-                            Console.WriteLine("{0} Received work", performPretendWorkMessage.Id);
-                            var random = new Random();
-                            var randomWait = random.Next(10);
-                            Console.WriteLine("{0} Pretending it takes {1} seconds to complete",
-                                              performPretendWorkMessage.Id, randomWait);
-                            var chaosMonkey = random.Next(5).Equals(0);
-                            if (chaosMonkey)
-                            {
-                                Console.WriteLine("{0} Going to throw exception on worker", performPretendWorkMessage.Id);
-                            }
-                            Thread.Sleep(randomWait*1000);
-                            if (chaosMonkey)
-                            {
-                                Console.WriteLine("{0} Exception", performPretendWorkMessage.Id);
-                                throw new Exception("Chaos monkey!");
-                            }
-                            Console.WriteLine("{0} Done with work ", performPretendWorkMessage.Id);
-                        });
-                });
+                            Console.WriteLine("{0} Going to throw exception on worker", performPretendWorkMessage.Id);
+                        }
+                        Thread.Sleep(randomWait * 1000);
+                        if (chaosMonkey)
+                        {
+                            Console.WriteLine("{0} Exception", performPretendWorkMessage.Id);
+                            throw new Exception("Chaos monkey!");
+                        }
+                        Console.WriteLine("{0} Done with work ", performPretendWorkMessage.Id);
+                    });
+                }, TaskCreationOptions.LongRunning);
 
             while (Console.ReadLine() != "Quit")
             {
