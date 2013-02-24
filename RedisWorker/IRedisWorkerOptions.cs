@@ -25,7 +25,7 @@ namespace RedisWorker
         /// <summary>
         /// How often to check for orphaned in progress work
         /// </summary>
-        TimeSpan OrphanedProcessingInterval { get; set; }
+        TimeSpan OrphanedInProcessInterval { get; set; }
 
         /// <summary>
         /// Used to determine names of lists and hashes where data is stored
