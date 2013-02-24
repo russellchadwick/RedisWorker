@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Threading;
+using System.Threading.Tasks;
 using ServiceStack.Redis;
 using ServiceStack.Text;
 
@@ -135,10 +136,7 @@ namespace RedisWorker
 
             var redisClient = GetRedisClient();
 
-            ThreadPool.QueueUserWorkItem(delegate
-                {
-                    CleanupWork();
-                });
+            Task.Factory.StartNew(CleanupWork, TaskCreationOptions.LongRunning);
 
             while (true)
             {
