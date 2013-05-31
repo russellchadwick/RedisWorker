@@ -98,8 +98,9 @@ namespace RedisWorker
 
                             using (var redisTransaction = redisClient.CreateTransaction())
                             {
-                                redisTransaction.QueueCommand(client => client.RemoveItemFromList(_redisWorkerOptions.NamingStrategy.ProcessingName, workId));
-                                redisTransaction.QueueCommand(client => client.PushItemToList(_redisWorkerOptions.NamingStrategy.QueueName, workId));
+                                var id = workId;
+                                redisTransaction.QueueCommand(client => client.RemoveItemFromList(_redisWorkerOptions.NamingStrategy.ProcessingName, id));
+                                redisTransaction.QueueCommand(client => client.PushItemToList(_redisWorkerOptions.NamingStrategy.QueueName, id));
 
                                 redisTransaction.Commit();
                             }
