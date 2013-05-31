@@ -9,6 +9,7 @@ namespace TestClient
     class PerformPretendWorkMessage
     {
         public Guid Id { get; set; }
+        public DateTime When { get; set; }
     }
 
     class Program
@@ -24,7 +25,8 @@ namespace TestClient
                     var guid = Guid.NewGuid();
                     redisClient.QueueWork(new PerformPretendWorkMessage
                         {
-                            Id = guid
+                            Id = guid,
+                            When = DateTime.Now
                         });
                     Console.WriteLine("{0} Wrote work", guid);
                 }
