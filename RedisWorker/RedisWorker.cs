@@ -10,6 +10,7 @@ namespace RedisWorker
     {
         private readonly IRedisClientsManager _redisClientsManager;
         private readonly IRedisWorkerOptions _redisWorkerOptions;
+        public int MaxDegreeOfParallelism = 3;
 
         public RedisWorker(
             IRedisClientsManager redisClientsManager,
@@ -126,25 +127,36 @@ namespace RedisWorker
             Task.Factory.StartNew(RequeueOrphanedInProcessWork, TaskCreationOptions.LongRunning);
 
             var redisClient = GetRedisClient();
-            while (true)
-            {
-                var workId = redisClient.BlockingPopAndPushItemBetweenLists(_redisWorkerOptions.NamingStrategy.QueueName, _redisWorkerOptions.NamingStrategy.ProcessingName, null);
-                var serializedRedisWork = redisClient.GetValueFromHash(_redisWorkerOptions.NamingStrategy.WorkName, workId);
-                var redisWork = JsonSerializer.DeserializeFromString<RedisWork<TWork>>(serializedRedisWork);
 
-                ThreadPool.QueueUserWorkItem(delegate
-                {
-                    try
-                    {
-                        workHandler.Invoke(redisWork.Work);
-                        CompletedWork(workId, redisWork);
-                    }
-                    catch (Exception exception)
-                    {
-                        ErroredWork(workId, redisWork);
-                    }
-                });
-            }
+            
+            // infine foreach loop with max degree of parallelism 
+            Parallel.ForEach(new InfinitePartitioner(), new ParallelOptions { MaxDegreeOfParallelism = MaxDegreeOfParallelism },
+           (ignored, loopState) =>
+           {
+               try
+               {
+
+
+                   var workId = redisClient.BlockingPopAndPushItemBetweenLists(_redisWorkerOptions.NamingStrategy.QueueName, _redisWorkerOptions.NamingStrategy.ProcessingName, null);
+                   var serializedRedisWork = redisClient.GetValueFromHash(_redisWorkerOptions.NamingStrategy.WorkName, workId);
+                   var redisWork = JsonSerializer.DeserializeFromString<RedisWork<TWork>>(serializedRedisWork);
+                   try
+                   {
+                       workHandler.Invoke(redisWork.Work);
+                       CompletedWork(workId, redisWork);
+                   }
+                   catch (Exception exception)
+                   {
+                       //TODO: exception message should be added to model
+                       ErroredWork(workId, redisWork);
+                       
+                   }
+               }
+               catch (Exception)
+               {
+                   //TODO: exception message should be added to model          
+               }
+           });
         }
     }
 }
