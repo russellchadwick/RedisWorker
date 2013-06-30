@@ -43,6 +43,9 @@ namespace TestClient
             Task.Factory.StartNew(() =>
                 {
                     var redisWorker = new RedisWorker<PerformPretendWorkMessage>(RedisClientsManager);
+                    // --> threads limitation has been observed in VS
+                    redisWorker.MaxDegreeOfParallelism = 5;
+                    // <--
                     redisWorker.WaitForWork(performPretendWorkMessage =>
                     {
                         Console.WriteLine("{0} Received work", performPretendWorkMessage.Id);
