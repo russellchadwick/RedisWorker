@@ -42,7 +42,7 @@ class Worker
     {
         var redisClientsManager = new PooledRedisClientManager("127.0.0.1");
         var redisWorker = new RedisWorker<WorkMessage>(redisClientsManager);
-        redisWorker.MaxDegreeOfParallelism =10;
+        redisWorker.MaxDegreeOfParallelism = 10;
         redisWorker.WaitForWork(workMessage =>
             {
                 Console.WriteLine("Received work {0}", workMessage.Id);
