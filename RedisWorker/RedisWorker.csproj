@@ -63,6 +63,7 @@
     <Compile Include="IRedisWorker.cs" />
     <Compile Include="IRedisWorkerNamingStrategy.cs" />
     <Compile Include="IRedisWorkerOptions.cs" />
+    <Compile Include="LimitedConcurrencyLevelTaskScheduler.cs" />
     <Compile Include="RedisWork.cs" />
     <Compile Include="RedisWorker.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

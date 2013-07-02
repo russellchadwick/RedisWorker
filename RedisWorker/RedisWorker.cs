@@ -125,6 +125,9 @@ namespace RedisWorker
 
             Task.Factory.StartNew(RequeueOrphanedInProcessWork, TaskCreationOptions.LongRunning);
 
+            var limitedConcurrencyLevelTaskScheduler = new LimitedConcurrencyLevelTaskScheduler(_redisWorkerOptions.MaxDegreeOfParallelism);
+            var factory = new TaskFactory(limitedConcurrencyLevelTaskScheduler);
+
             var redisClient = GetRedisClient();
             while (true)
             {
@@ -132,18 +135,18 @@ namespace RedisWorker
                 var serializedRedisWork = redisClient.GetValueFromHash(_redisWorkerOptions.NamingStrategy.WorkName, workId);
                 var redisWork = JsonSerializer.DeserializeFromString<RedisWork<TWork>>(serializedRedisWork);
 
-                ThreadPool.QueueUserWorkItem(delegate
-                {
-                    try
+                factory.StartNew(() =>
                     {
-                        workHandler.Invoke(redisWork.Work);
-                        CompletedWork(workId, redisWork);
-                    }
-                    catch (Exception exception)
-                    {
-                        ErroredWork(workId, redisWork);
-                    }
-                });
+                        try
+                        {
+                            workHandler.Invoke(redisWork.Work);
+                            CompletedWork(workId, redisWork);
+                        }
+                        catch (Exception exception)
+                        {
+                            ErroredWork(workId, redisWork);
+                        }
+                    });
             }
         }
     }

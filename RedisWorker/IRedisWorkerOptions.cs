@@ -17,6 +17,11 @@ namespace RedisWorker
         int Retries { get; set; }
 
         /// <summary>
+        /// How many messages to process simultaneously for this worker
+        /// </summary>
+        int MaxDegreeOfParallelism { get; set; }
+
+        /// <summary>
         /// Amount of time before work is considered orphaned
         /// Work in processing list older than this amount will be placed back onto the pending queue
         /// </summary>
