@@ -60,6 +60,7 @@
   <ItemGroup>
     <Compile Include="DefaultRedisWorkerNamingStrategy.cs" />
     <Compile Include="DefaultRedisWorkerOptions.cs" />
+    <Compile Include="InfinitePartitioner.cs" />
     <Compile Include="IRedisWorker.cs" />
     <Compile Include="IRedisWorkerNamingStrategy.cs" />
     <Compile Include="IRedisWorkerOptions.cs" />
