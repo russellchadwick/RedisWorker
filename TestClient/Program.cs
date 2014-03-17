@@ -1,8 +1,8 @@
 ﻿using System;
 using System.Threading;
 using System.Threading.Tasks;
+using BookSleeve;
 using RedisWorker;
-using ServiceStack.Redis;
 
 namespace TestClient
 {
@@ -14,27 +14,26 @@ namespace TestClient
 
     class Program
     {
-        private static readonly IRedisClientsManager RedisClientsManager = new PooledRedisClientManager("192.168.94.178");
+        private static readonly RedisConnection RedisConnection = new RedisConnection("192.168.94.178");
 
         static void StartSomeWork(int count = 10)
         {
-            using (var redisClient = RedisClientsManager.GetClient())
+            for (var x = 0; x < count; x++)
             {
-                for (var x = 0; x < count; x++)
-                {
-                    var guid = Guid.NewGuid();
-                    redisClient.QueueWork(new PerformPretendWorkMessage
-                        {
-                            Id = guid,
-                            When = DateTime.Now
-                        });
-                    Console.WriteLine("{0} Wrote work", guid);
-                }
+                var guid = Guid.NewGuid();
+                RedisConnection.QueueWork(new PerformPretendWorkMessage
+                    {
+                        Id = guid,
+                        When = DateTime.Now
+                    });
+                Console.WriteLine("{0} Wrote work", guid);
             }
         }
 
         static void Main()
         {
+            RedisConnection.Open().Wait();
+
             ThreadPool.QueueUserWorkItem(delegate
                 {
                     StartSomeWork();
@@ -42,7 +41,7 @@ namespace TestClient
 
             Task.Factory.StartNew(() =>
                 {
-                    var redisWorker = new RedisWorker<PerformPretendWorkMessage>(RedisClientsManager);
+                    var redisWorker = new RedisWorker<PerformPretendWorkMessage>(() => new RedisConnection("192.168.94.178"));
                     redisWorker.WaitForWork(performPretendWorkMessage =>
                     {
                         Console.WriteLine("{0} Received work", performPretendWorkMessage.Id);

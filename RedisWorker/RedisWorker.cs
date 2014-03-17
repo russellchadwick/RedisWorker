@@ -1,80 +1,130 @@
 ﻿using System;
+using System.Diagnostics;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
-using ServiceStack.Redis;
-using ServiceStack.Text;
+using BookSleeve;
+using Newtonsoft.Json;
 
 namespace RedisWorker
 {
     public class RedisWorker<TWork> : IRedisWorker<TWork>
     {
-        private readonly IRedisClientsManager _redisClientsManager;
+        private readonly RedisConnection _blockingRedisConnection;
+        private readonly RedisConnection _nonBlockingRedisConnection;
         private readonly IRedisWorkerOptions _redisWorkerOptions;
 
         public RedisWorker(
-            IRedisClientsManager redisClientsManager,
+            Func<RedisConnection> redisConnection,
             IRedisWorkerOptions redisWorkerOptions)
         {
-            _redisClientsManager = redisClientsManager;
+            _blockingRedisConnection = redisConnection.Invoke();
+            _nonBlockingRedisConnection = redisConnection.Invoke();
             _redisWorkerOptions = redisWorkerOptions;
         }
 
         public RedisWorker(
-            IRedisClientsManager redisClientsManager)
-            : this(redisClientsManager, new DefaultRedisWorkerOptions<TWork>())
+            Func<RedisConnection> redisConnection)
+            : this(redisConnection, new DefaultRedisWorkerOptions<TWork>())
         {
-        }
-
-        private IRedisClient GetRedisClient()
-        {
-            return _redisClientsManager.GetClient();
         }
 
         private void CompletedWork(string workId, RedisWork<TWork> redisWork)
         {
-            using (var redisClient = GetRedisClient())            
-            using (var redisTransaction = redisClient.CreateTransaction())
+            using (var redisTransaction = _nonBlockingRedisConnection.CreateTransaction())
             {
                 redisWork.WhenCompleted = DateTime.UtcNow;
-                var serializedRedisWork = JsonSerializer.SerializeToString(redisWork);
+                var serializedRedisWork = JsonConvert.SerializeObject(redisWork);
 
-                redisTransaction.QueueCommand(client => client.RemoveItemFromList(_redisWorkerOptions.NamingStrategy.ProcessingName, workId));
-                redisTransaction.QueueCommand(client => client.RemoveEntryFromHash(_redisWorkerOptions.NamingStrategy.WorkName, workId));
+                redisTransaction.Lists.Remove(_redisWorkerOptions.RedisDatabase, _redisWorkerOptions.NamingStrategy.ProcessingName, workId);
+                redisTransaction.Hashes.Remove(_redisWorkerOptions.RedisDatabase, _redisWorkerOptions.NamingStrategy.WorkName, workId);
 
                 if (_redisWorkerOptions.Audit)
                 {
-                    redisTransaction.QueueCommand(client => client.SetEntryInHash(_redisWorkerOptions.NamingStrategy.AuditName, workId, serializedRedisWork));
+                    redisTransaction.Hashes.Set(_redisWorkerOptions.RedisDatabase, _redisWorkerOptions.NamingStrategy.AuditName, workId,
+                                                serializedRedisWork);
                 }
 
-                redisTransaction.Commit();
+                redisTransaction.Execute();
             }
         }
 
         private void ErroredWork(string workId, RedisWork<TWork> redisWork)
         {
-            using (var redisClient = GetRedisClient())
-            using (var redisTransaction = redisClient.CreateTransaction())
+            using (var redisTransaction = _nonBlockingRedisConnection.CreateTransaction())
             {
-                redisTransaction.QueueCommand(client => client.RemoveItemFromList(_redisWorkerOptions.NamingStrategy.ProcessingName, workId));
+                redisTransaction.Lists.Remove(_redisWorkerOptions.RedisDatabase, _redisWorkerOptions.NamingStrategy.ProcessingName, workId);
 
                 if (redisWork.RetryCount.Equals(_redisWorkerOptions.Retries))
                 {
                     redisWork.WhenErrored = DateTime.UtcNow;
-                    var serializedRedisWork = JsonSerializer.SerializeToString(redisWork);
+                    var serializedRedisWork = JsonConvert.SerializeObject(redisWork);
 
-                    redisTransaction.QueueCommand(client => client.RemoveEntryFromHash(_redisWorkerOptions.NamingStrategy.WorkName, workId));
-                    redisTransaction.QueueCommand(client => client.SetEntryInHash(_redisWorkerOptions.NamingStrategy.ErrorName, workId, serializedRedisWork));
+                    redisTransaction.Hashes.Remove(_redisWorkerOptions.RedisDatabase, _redisWorkerOptions.NamingStrategy.WorkName, workId);
+                    redisTransaction.Hashes.Set(_redisWorkerOptions.RedisDatabase, _redisWorkerOptions.NamingStrategy.ErrorName, workId,
+                                                serializedRedisWork);
                 }
                 else
                 {
                     redisWork.RetryCount++;
-                    var serializedRedisWork = JsonSerializer.SerializeToString(redisWork);
+                    var serializedRedisWork = JsonConvert.SerializeObject(redisWork);
 
-                    redisTransaction.QueueCommand(client => client.PushItemToList(_redisWorkerOptions.NamingStrategy.QueueName, workId));
-                    redisTransaction.QueueCommand(client => client.SetEntryInHash(_redisWorkerOptions.NamingStrategy.WorkName, workId, serializedRedisWork));
+                    redisTransaction.Lists.AddLast(_redisWorkerOptions.RedisDatabase, _redisWorkerOptions.NamingStrategy.QueueName, workId);
+                    redisTransaction.Hashes.Set(_redisWorkerOptions.RedisDatabase, _redisWorkerOptions.NamingStrategy.WorkName, workId,
+                                                serializedRedisWork);
                 }
 
-                redisTransaction.Commit();
+                redisTransaction.Execute();
+            }
+        }
+
+        private void AcquireLock()
+        {
+            while (true)
+            {
+                var lockExpires = DateTime.UtcNow.Add(_redisWorkerOptions.OrphanedInProcessInterval);
+                var lockExpiresUnixTimestamp = (lockExpires - new DateTime(1970, 1, 1, 0, 0, 0, 0, 0)).TotalSeconds + 1;
+                var lockExpiresUnixTimestampString = lockExpiresUnixTimestamp.ToString(CultureInfo.CurrentCulture);
+                var success =
+                    _nonBlockingRedisConnection.Strings.SetIfNotExists(_redisWorkerOptions.RedisDatabase,
+                                                                       _redisWorkerOptions.NamingStrategy.CleanupLockName,
+                                                                       lockExpiresUnixTimestampString)
+                                               .Result;
+
+                if (success)
+                {
+                    Trace.WriteLine("No lock existed, success!");
+                    return;
+                }
+
+                var existingLock =
+                    _nonBlockingRedisConnection.Strings.GetString(_redisWorkerOptions.RedisDatabase, _redisWorkerOptions.NamingStrategy.CleanupLockName)
+                                               .Result;
+                double existingLockUnixTimestamp;
+                if (!double.TryParse(existingLock, out existingLockUnixTimestamp))
+                {
+                    Trace.WriteLine(string.Format("Removing lock because it was unexpected data type, contained '{0}'", existingLock));
+                    _nonBlockingRedisConnection.Keys.Remove(_redisWorkerOptions.RedisDatabase, _redisWorkerOptions.NamingStrategy.CleanupLockName);
+                }
+
+                if (lockExpiresUnixTimestamp > existingLockUnixTimestamp)
+                {
+                    Trace.WriteLine("Lock is out of date, updating with new value");
+                    var getSetResult =
+                        _nonBlockingRedisConnection.Strings.GetSet(_redisWorkerOptions.RedisDatabase,
+                                                                   _redisWorkerOptions.NamingStrategy.CleanupLockName,
+                                                                   lockExpiresUnixTimestampString)
+                                                   .Result;
+
+                    if (getSetResult.Equals(existingLock))
+                    {
+                        Trace.WriteLine("Acquired lock, success!");
+                        return;
+                    }
+                }
+
+                Trace.WriteLine(string.Format("Sleeping for {0} seconds", _redisWorkerOptions.OrphanedInProcessInterval.Seconds));
+                Thread.Sleep(_redisWorkerOptions.OrphanedInProcessInterval);
             }
         }
 
@@ -82,37 +132,46 @@ namespace RedisWorker
         {
             while (true)
             {
-                using (var redisClient = GetRedisClient())
-                try
+                AcquireLock();
+
+                var workIds =
+                    _nonBlockingRedisConnection.Lists.RangeString(_redisWorkerOptions.RedisDatabase,
+                                                                  _redisWorkerOptions.NamingStrategy.ProcessingName,
+                                                                  0,
+                                                                  int.MaxValue)
+                                               .Result;
+                foreach (var workId in workIds)
                 {
-                    using (redisClient.AcquireLock(_redisWorkerOptions.NamingStrategy.CleanupLockName, _redisWorkerOptions.OrphanedInProcessInterval))
+                    var serializedRedisWork =
+                        _nonBlockingRedisConnection.Hashes.GetString(_redisWorkerOptions.RedisDatabase,
+                                                                     _redisWorkerOptions.NamingStrategy.WorkName,
+                                                                     workId)
+                                                   .Result;
+
+                    if (serializedRedisWork == null)
                     {
-                        var workIds = redisClient.GetAllItemsFromList(_redisWorkerOptions.NamingStrategy.ProcessingName);
-                        foreach (var workId in workIds)
-                        {
-                            var serializedRedisWork = redisClient.GetValueFromHash(_redisWorkerOptions.NamingStrategy.WorkName, workId);
-                            var redisWork = JsonSerializer.DeserializeFromString<RedisWork<TWork>>(serializedRedisWork);
+                        continue;
+                    }
+
+                    var redisWork = JsonConvert.DeserializeObject<RedisWork<TWork>>(serializedRedisWork);
                             
-                            if (redisWork.WhenQueued >= DateTime.UtcNow - _redisWorkerOptions.ProcessingGracePeriod)
-                                continue;
+                    if (redisWork.WhenQueued >= DateTime.UtcNow - _redisWorkerOptions.ProcessingGracePeriod)
+                    {
+                        continue;
+                    }
 
-                            using (var redisTransaction = redisClient.CreateTransaction())
-                            {
-                                var id = workId;
-                                redisTransaction.QueueCommand(client => client.RemoveItemFromList(_redisWorkerOptions.NamingStrategy.ProcessingName, id));
-                                redisTransaction.QueueCommand(client => client.PushItemToList(_redisWorkerOptions.NamingStrategy.QueueName, id));
+                    using (var redisTransaction = _nonBlockingRedisConnection.CreateTransaction())
+                    {
+                        var id = workId;
+                        Trace.WriteLine(string.Format("Requeueing work '{0}'", workId));
+                        redisTransaction.Lists.Remove(_redisWorkerOptions.RedisDatabase, _redisWorkerOptions.NamingStrategy.ProcessingName, id);
+                        redisTransaction.Lists.AddLast(_redisWorkerOptions.RedisDatabase, _redisWorkerOptions.NamingStrategy.QueueName, id);
 
-                                redisTransaction.Commit();
-                            }
-                        }
-
-                        Thread.Sleep(_redisWorkerOptions.OrphanedInProcessInterval);
+                        redisTransaction.Execute();
                     }
                 }
-                catch (TimeoutException)
-                {
-                    // Expected to time out, it means another worker is holding the lock and performing the work
-                }
+
+                Thread.Sleep(_redisWorkerOptions.OrphanedInProcessInterval);
             }
         }
 
@@ -123,17 +182,27 @@ namespace RedisWorker
                 throw new ArgumentNullException("workHandler");
             }
 
+            _nonBlockingRedisConnection.Open().Wait();
+
             Task.Factory.StartNew(RequeueOrphanedInProcessWork, TaskCreationOptions.LongRunning);
 
             var limitedConcurrencyLevelTaskScheduler = new LimitedConcurrencyLevelTaskScheduler(_redisWorkerOptions.MaxDegreeOfParallelism);
             var factory = new TaskFactory(limitedConcurrencyLevelTaskScheduler);
 
-            var redisClient = GetRedisClient();
             while (true)
             {
-                var workId = redisClient.BlockingPopAndPushItemBetweenLists(_redisWorkerOptions.NamingStrategy.QueueName, _redisWorkerOptions.NamingStrategy.ProcessingName, null);
-                var serializedRedisWork = redisClient.GetValueFromHash(_redisWorkerOptions.NamingStrategy.WorkName, workId);
-                var redisWork = JsonSerializer.DeserializeFromString<RedisWork<TWork>>(serializedRedisWork);
+                _blockingRedisConnection.Open().Wait();
+                var workId = _blockingRedisConnection.Lists.BlockingRemoveLastAndAddFirstString(_redisWorkerOptions.RedisDatabase,
+                                                                           _redisWorkerOptions.NamingStrategy.QueueName,
+                                                                           _redisWorkerOptions.NamingStrategy
+                                                                                              .ProcessingName, 0).Result;
+
+                var serializedRedisWork =
+                    _nonBlockingRedisConnection.Hashes.GetString(_redisWorkerOptions.RedisDatabase,
+                                                                 _redisWorkerOptions.NamingStrategy.WorkName,
+                                                                 workId)
+                                               .Result;
+                var redisWork = JsonConvert.DeserializeObject<RedisWork<TWork>>(serializedRedisWork);
 
                 factory.StartNew(() =>
                     {

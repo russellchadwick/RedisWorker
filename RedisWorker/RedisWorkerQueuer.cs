@@ -1,16 +1,17 @@
 ﻿using System;
-using ServiceStack.Redis;
-using ServiceStack.Text;
+using System.Threading.Tasks;
+using BookSleeve;
+using Newtonsoft.Json;
 
 namespace RedisWorker
 {
     public static class RedisWorkerQueuer
     {
-        public static void QueueWork<TWork>(this IRedisClient redisClient, TWork work, IRedisWorkerNamingStrategy redisWorkerNamingStrategy)
+        public static void QueueWork<TWork>(this RedisConnection redisConnection, TWork work, IRedisWorkerNamingStrategy redisWorkerNamingStrategy)
         {
             var workId = Guid.NewGuid().ToString();
 
-            using (var redisTransaction = redisClient.CreateTransaction())
+            using (var redisTransaction = redisConnection.CreateTransaction())
             {
                 var redisWork = new RedisWork<TWork>
                     {
@@ -19,19 +20,19 @@ namespace RedisWorker
                         Work = work
                     };
 
-                var serializedRedisWork = JsonSerializer.SerializeToString(redisWork);
+                var serializedRedisWork = JsonConvert.SerializeObject(redisWork);
 
-                redisTransaction.QueueCommand(client => client.PushItemToList(redisWorkerNamingStrategy.QueueName, workId));
-                redisTransaction.QueueCommand(client => client.SetEntryInHash(redisWorkerNamingStrategy.WorkName, workId, serializedRedisWork));
+                redisTransaction.Lists.AddLast(0, redisWorkerNamingStrategy.QueueName, workId);
+                redisTransaction.Hashes.Set(0, redisWorkerNamingStrategy.WorkName, workId, serializedRedisWork);
 
-                redisTransaction.Commit();
+                redisTransaction.Execute();
             }
         }
 
-        public static void QueueWork<TWork>(this IRedisClient redisClient, TWork work)
+        public static void QueueWork<TWork>(this RedisConnection redisConnection, TWork work)
         {
             var redisWorkerNamingStrategy = new DefaultRedisWorkerNamingStrategy(typeof (TWork).Name);
-            QueueWork(redisClient, work, redisWorkerNamingStrategy);
+            QueueWork(redisConnection, work, redisWorkerNamingStrategy);
         }
     }
 }

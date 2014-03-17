@@ -10,6 +10,7 @@ namespace RedisWorker
         public TimeSpan ProcessingGracePeriod { get; set; }
         public TimeSpan OrphanedInProcessInterval { get; set; }
         public IRedisWorkerNamingStrategy NamingStrategy { get; set; }
+        public int RedisDatabase { get; set; }
 
         public DefaultRedisWorkerOptions()
         {
@@ -19,6 +20,7 @@ namespace RedisWorker
             ProcessingGracePeriod = new TimeSpan(0, 5, 0);
             OrphanedInProcessInterval = new TimeSpan(0, 5, 0);
             NamingStrategy = new DefaultRedisWorkerNamingStrategy(typeof (TWork).Name);
+            RedisDatabase = 0;
         }
     }
 }

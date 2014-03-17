@@ -8,8 +8,12 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RedisWorker", "RedisWorker\RedisWorker.csproj", "{1156BB95-9742-4E19-8535-11E704DE615C}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{CFBCD5DA-A86C-4059-A14F-8FF7066DF186}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Nuget", "Nuget", "{EF0A7237-1330-4930-B118-0A9890043D3E}"
 	ProjectSection(SolutionItems) = preProject
-		NugetPack.cmd = NugetPack.cmd
+		nuget\NuGet.exe = nuget\NuGet.exe
+		nuget\NugetPack.cmd = nuget\NugetPack.cmd
+		nuget\RedisWorker.nuspec = nuget\RedisWorker.nuspec
 	EndProjectSection
 EndProject
 Global
@@ -32,5 +36,6 @@ Global
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{5B3602B3-1886-4BC7-9417-CED4A9E41993} = {6992C709-7A34-4338-A499-3D2B7267F4AB}
+		{EF0A7237-1330-4930-B118-0A9890043D3E} = {CFBCD5DA-A86C-4059-A14F-8FF7066DF186}
 	EndGlobalSection
 EndGlobal

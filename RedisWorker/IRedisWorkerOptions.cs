@@ -36,5 +36,10 @@ namespace RedisWorker
         /// Used to determine names of lists and hashes where data is stored
         /// </summary>
         IRedisWorkerNamingStrategy NamingStrategy { get; set; }
+
+        /// <summary>
+        /// Which redis database to operate on
+        /// </summary>
+        int RedisDatabase { get; set; }
     }
 }
